@@ -40,7 +40,7 @@ export class LeaderboardService {
       LIMIT ${limit}
     `
 
-    return rows.map((r) => ({
+    return rows.map((r: { userId: string; username: string; gamesPlayed: number; wins: number }) => ({
       userId: r.userId,
       username: r.username,
       gamesPlayed: Number(r.gamesPlayed),

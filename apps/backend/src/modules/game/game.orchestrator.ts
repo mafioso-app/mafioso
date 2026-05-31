@@ -100,7 +100,7 @@ export class GameOrchestrator {
       sessionId: session.id,
       roomId: room.id,
       phase: GamePhase.LOBBY,
-      players: session.players.map((ps) => ({
+      players: session.players.map((ps: import('@prisma/client').PlayerSession & { user: { id: string; username: string } }) => ({
         id: ps.id,
         userId: ps.userId,
         username: ps.user.username,
