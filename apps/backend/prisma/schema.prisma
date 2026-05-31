@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String?         @unique
+  username      String          @unique
+  passwordHash  String?
+  isGuest       Boolean         @default(false)
+  avatarUrl     String?
+  pushToken     String?
+  createdAt     DateTime        @default(now())
+  sessions      PlayerSession[]
+  refreshTokens RefreshToken[]
+}
+
+model Room {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  moderatorId String
+  settings    Json
+  status      RoomStatus    @default(LOBBY)
+  createdAt   DateTime      @default(now())
+  sessions    GameSession[]
+}
+
+model GameSession {
+  id        String          @id @default(cuid())
+  roomId    String
+  room      Room            @relation(fields: [roomId], references: [id])
+  phase     GamePhase       @default(LOBBY)
+  winner    Team?
+  startedAt DateTime        @default(now())
+  endedAt   DateTime?
+  players   PlayerSession[]
+  events    GameEvent[]
+}
+
+model PlayerSession {
+  id          String      @id @default(cuid())
+  sessionId   String
+  session     GameSession @relation(fields: [sessionId], references: [id])
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  role        String?
+  isAlive     Boolean     @default(true)
+  seat        Int
+  connectedAt DateTime    @default(now())
+}
+
+model GameEvent {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   GameSession @relation(fields: [sessionId], references: [id])
+  sequence  Int
+  type      String
+  actorId   String?
+  targetId  String?
+  payload   Json
+  createdAt DateTime    @default(now())
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, sequence])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum RoomStatus {
+  LOBBY
+  ACTIVE
+  FINISHED
+}
+
+enum GamePhase {
+  LOBBY
+  NIGHT
+  DAY_DISCUSSION
+  DAY_VOTING
+  GAME_OVER
+}
+
+enum Team {
+  VILLAGE
+  MAFIA
+}

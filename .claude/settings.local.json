@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Bash(npx tsc *)",
+      "Bash(pnpm --filter @mafioso/backend exec tsc -p tsconfig.build.json --noEmit)",
+      "Bash(pnpm --filter @mafioso/backend exec tsc --noEmit -p tsconfig.build.json)"
+    ]
+  }
+}

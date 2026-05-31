@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Mafioso",
+    "slug": "mafioso",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "mafioso",
+    "platforms": ["ios", "android"],
+    "sdkVersion": "51.0.0"
+  }
+}

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    name: Type-check, Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck — types
+        run: pnpm --filter @mafioso/types exec tsc --noEmit
+
+      - name: Typecheck — engine
+        run: pnpm --filter @mafioso/engine exec tsc --noEmit
+
+      - name: Typecheck — backend
+        run: pnpm --filter @mafioso/backend exec tsc --noEmit -p tsconfig.build.json
+
+      - name: Typecheck — web
+        run: pnpm --filter @mafioso/web exec tsc --noEmit
+
+      - name: Build — types
+        run: pnpm --filter @mafioso/types run build
+
+      - name: Build — engine
+        run: pnpm --filter @mafioso/engine run build
+
+      - name: Build — backend
+        run: pnpm --filter @mafioso/backend run build
+
+      - name: Build — web
+        run: pnpm --filter @mafioso/web run build
+
+      - name: Test — engine
+        run: pnpm --filter @mafioso/engine run test
+
+      - name: Test — backend (unit)
+        run: pnpm --filter @mafioso/backend run test
