@@ -95,7 +95,7 @@ export class RoomsService {
     })
     if (!session) throw new BadRequestException('No active session for this room')
 
-    const alreadyJoined = session.players.some((p: import('@prisma/client').PlayerSession) => p.userId === userId)
+    const alreadyJoined = session.players.some((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
     if (alreadyJoined) throw new ConflictException('Already joined this room')
 
     if (session.players.length >= maxPlayers) {
@@ -132,10 +132,10 @@ export class RoomsService {
       moderatorId: room.moderatorId,
       phase: session?.phase ?? 'LOBBY',
       playerCount: session?.players.length ?? 0,
-      players: (session?.players ?? []).map((p: import('@prisma/client').PlayerSession & { user: { id: string; username: string } }) => ({
+      players: (session?.players ?? []).map((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number; user?: { id: string; username: string } }) => ({
         id: p.id,
         userId: p.userId,
-        username: p.user.username,
+        username: p.user?.username ?? '',
         seat: p.seat,
         isAlive: p.isAlive,
       })),

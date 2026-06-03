@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import { Prisma } from '@prisma/client'
 import { Server, Socket } from 'socket.io'
 import { GamePhase, Team } from '@mafioso/types'
 import type { RoomSettings } from '@mafioso/types'
@@ -100,10 +99,10 @@ export class GameOrchestrator {
       sessionId: session.id,
       roomId: room.id,
       phase: GamePhase.LOBBY,
-      players: session.players.map((ps: import('@prisma/client').PlayerSession & { user: { id: string; username: string } }) => ({
+      players: session.players.map((ps: { id: string; userId: string; role: string | null; isAlive: boolean; seat: number; user?: { id: string; username: string } }) => ({
         id: ps.id,
         userId: ps.userId,
-        username: ps.user.username,
+        username: ps.user?.username ?? '',
         seat: ps.seat,
         isAlive: ps.isAlive,
         role: null,
@@ -471,7 +470,7 @@ export class GameOrchestrator {
       })
       const sequence = (last?.sequence ?? 0) + 1
       await this.prisma.gameEvent.create({
-        data: { sessionId, sequence, type, actorId, targetId, payload: payload as Prisma.InputJsonValue },
+        data: { sessionId, sequence, type, actorId, targetId, payload: payload as unknown as object },
       })
     } catch (err: unknown) {
       this.logger.error(`Failed to append event ${type} for session ${sessionId}: ${String(err)}`)

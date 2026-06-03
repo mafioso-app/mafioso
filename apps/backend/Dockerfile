@@ -17,6 +17,7 @@ COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY . .
 RUN pnpm --filter @mafioso/types run build
 RUN pnpm --filter @mafioso/engine run build
+RUN pnpm --filter @mafioso/backend run prisma:generate
 RUN pnpm --filter @mafioso/backend run build
 
 FROM base AS runner

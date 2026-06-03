@@ -256,7 +256,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return
     }
 
-    const playerSession = session.players.find((p) => p.userId === userId)
+    const playerSession = session.players.find((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
     if (!playerSession) {
       client.emit('error', { code: 'FORBIDDEN', message: 'You are not in this room' })
       return
@@ -298,10 +298,10 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         sessionId: session.id,
         roomId: room.id,
         phase: session.phase,
-        players: session.players.map((p) => ({
+        players: session.players.map((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number; user?: { username: string } }) => ({
           id: p.id,
           userId: p.userId,
-          username: p.user.username,
+          username: p.user?.username ?? '',
           seat: p.seat,
           isAlive: p.isAlive,
           role: null,
