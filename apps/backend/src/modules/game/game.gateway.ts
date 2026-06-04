@@ -50,7 +50,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly timerService: TimerService,
   ) {}
 
-  afterInit(server: Server): void {
+  afterInit(): void {
     try {
       const pub = this.redis.getPubClient()
       const sub = this.redis.getSubClient()
@@ -58,7 +58,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         this.logger.warn('Redis clients not available — check REDIS_URL env var')
         return
       }
-      server.adapter(createAdapter(pub, sub))
+      this.server.adapter(createAdapter(pub, sub))
       this.logger.log('Redis adapter connected successfully')
     } catch (e) {
       this.logger.error('Redis adapter failed: ' + (e as Error).message)
