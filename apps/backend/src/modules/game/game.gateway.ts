@@ -50,23 +50,27 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly timerService: TimerService,
   ) {}
 
+  private redisAdapterSet = false
+
   afterInit(): void {
-    try {
-      const pub = this.redis.getPubClient()
-      const sub = this.redis.getSubClient()
-      if (!pub || !sub) {
-        this.logger.warn('Redis clients not available — check REDIS_URL env var')
-        return
-      }
-      this.server.adapter(createAdapter(pub, sub))
-      this.logger.log('Redis adapter connected successfully')
-    } catch (e) {
-      this.logger.error('Redis adapter failed: ' + (e as Error).message)
-      this.logger.warn('Falling back to in-memory adapter')
-    }
+    this.logger.log('Gateway initialized')
   }
 
   async handleConnection(client: Socket): Promise<void> {
+    if (!this.redisAdapterSet) {
+      try {
+        const pub = this.redis.getPubClient()
+        const sub = this.redis.getSubClient()
+        if (pub && sub) {
+          this.server.adapter(createAdapter(pub, sub))
+          this.redisAdapterSet = true
+          this.logger.log('Redis adapter connected successfully')
+        }
+      } catch (e) {
+        this.logger.error('Redis adapter failed: ' + (e as Error).message)
+      }
+    }
+
     const token = client.handshake.auth['token'] as string | undefined
 
     if (!token) {
