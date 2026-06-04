@@ -9,11 +9,14 @@ export class RedisService implements OnModuleDestroy {
 
   constructor() {
     const url = process.env['REDIS_URL'] ?? 'redis://localhost:6379'
+    this.logger.log('Connecting to Redis: ' + (process.env['REDIS_URL'] ? 'URL set' : 'URL NOT SET'))
     this.pubClient = new Redis(url)
     this.subClient = this.pubClient.duplicate()
 
-    this.pubClient.on('error', (err) => this.logger.error('Redis pubClient error', err))
-    this.subClient.on('error', (err) => this.logger.error('Redis subClient error', err))
+    this.pubClient.on('error', (err) => this.logger.error('Redis pubClient error: ' + String(err)))
+    this.subClient.on('error', (err) => this.logger.error('Redis subClient error: ' + String(err)))
+    this.pubClient.on('connect', () => this.logger.log('Redis pubClient connected'))
+    this.subClient.on('connect', () => this.logger.log('Redis subClient connected'))
   }
 
   getPubClient(): Redis {
