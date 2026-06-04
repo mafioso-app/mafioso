@@ -20,7 +20,9 @@ RUN pnpm --filter @mafioso/engine run build
 RUN pnpm --filter @mafioso/backend run prisma:generate
 RUN pnpm --filter @mafioso/backend run build
 RUN pnpm --filter @mafioso/backend deploy --prod /app/backend-deploy
-RUN cp -r apps/backend/node_modules/.prisma /app/backend-deploy/node_modules/.prisma
+RUN PRISMA_BIN=$(find /app/node_modules/.pnpm -path "*/prisma/build/index.js" 2>/dev/null | head -1) \
+    && cd /app/backend-deploy \
+    && node "$PRISMA_BIN" generate --schema=prisma/schema.prisma
 
 FROM base AS runner
 ENV NODE_ENV=production
