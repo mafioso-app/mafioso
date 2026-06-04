@@ -19,14 +19,16 @@ RUN pnpm --filter @mafioso/types run build
 RUN pnpm --filter @mafioso/engine run build
 RUN pnpm --filter @mafioso/backend run prisma:generate
 RUN pnpm --filter @mafioso/backend run build
+RUN pnpm --filter @mafioso/backend deploy --prod /app/backend-deploy
+RUN cp -r apps/backend/node_modules/.prisma /app/backend-deploy/node_modules/.prisma
 
 FROM base AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nestjs
 
+COPY --from=build /app/backend-deploy/node_modules ./node_modules
 COPY --from=build /app/apps/backend/dist ./dist
-COPY --from=build /app/apps/backend/node_modules ./node_modules
 COPY --from=build /app/apps/backend/prisma ./prisma
 
 USER nestjs
