@@ -19,6 +19,7 @@ RUN pnpm --filter @mafioso/types run build
 RUN pnpm --filter @mafioso/engine run build
 RUN pnpm --filter @mafioso/backend run prisma:generate
 RUN pnpm --filter @mafioso/backend run build
+RUN echo "node-linker=hoisted" >> .npmrc
 RUN pnpm --filter @mafioso/backend deploy --prod /app/backend-deploy
 RUN PRISMA_BIN=$(find /app/node_modules/.pnpm -path "*/prisma/build/index.js" 2>/dev/null | head -1) \
     && cd /app/backend-deploy \
@@ -26,6 +27,7 @@ RUN PRISMA_BIN=$(find /app/node_modules/.pnpm -path "*/prisma/build/index.js" 2>
 
 FROM base AS runner
 ENV NODE_ENV=production
+RUN apk add --no-cache openssl
 WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nestjs
 
