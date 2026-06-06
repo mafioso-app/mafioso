@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronRight, ChevronLeft, Check, Users } from 'lucide-react'
 import { api } from '@/lib/api'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 interface RoomTemplate {
   id: string
@@ -37,7 +38,7 @@ const ROLE_COLORS: Record<string, string> = {
   villager: 'bg-green-900 text-green-200',
 }
 
-export default function CreateRoomPage() {
+function CreateRoomContent() {
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [templates, setTemplates] = useState<RoomTemplate[]>([])
@@ -368,5 +369,13 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
       <span className="text-gray-400">{label}</span>
       <span className="text-gray-200 font-medium">{value}</span>
     </div>
+  )
+}
+
+export default function CreateRoomPage() {
+  return (
+    <ProtectedRoute>
+      <CreateRoomContent />
+    </ProtectedRoute>
   )
 }

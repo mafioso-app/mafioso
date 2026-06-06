@@ -19,9 +19,13 @@ export default function HomePage() {
           href="/register"
           className="rounded-lg border border-white px-8 py-3 font-semibold text-white transition hover:bg-white/10"
         >
-          Create Room
+          Register
         </Link>
       </div>
+
+      <Link href="/guest" className="text-sm text-gray-400 underline hover:text-gray-300">
+        Play as Guest
+      </Link>
 
       <p className="text-sm text-gray-500">Play online or host on-site with friends</p>
     </main>

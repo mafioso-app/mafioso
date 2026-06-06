@@ -16,6 +16,7 @@ import { ReconnectingOverlay } from '@/components/game/ReconnectingOverlay'
 import { SpectatorBanner } from '@/components/game/SpectatorBanner'
 import { LastWordsOverlay } from '@/components/game/LastWordsOverlay'
 import { ModeratorDashboard } from '@/components/moderator/ModeratorDashboard'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 interface PageProps {
   params: { code: string }
@@ -43,7 +44,7 @@ function getUserIdFromToken(): string | null {
   }
 }
 
-export default function RoomPage({ params }: PageProps) {
+function RoomContent({ params }: PageProps) {
   const { code } = params
 
   const phase = useGameStore((s) => s.phase)
@@ -267,5 +268,13 @@ export default function RoomPage({ params }: PageProps) {
         </main>
       </div>
     </div>
+  )
+}
+
+export default function RoomPage({ params }: PageProps) {
+  return (
+    <ProtectedRoute>
+      <RoomContent params={params} />
+    </ProtectedRoute>
   )
 }

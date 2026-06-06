@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { api } from '../../../lib/api'
+import { saveToken } from '../../../lib/auth'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -11,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [guestLoading, setGuestLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -19,27 +19,12 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const res = await api.post<{ accessToken: string }>('/auth/login', { username, password })
-      localStorage.setItem('accessToken', res.data.accessToken)
-      router.push('/create')
+      saveToken(res.data.accessToken)
+      router.push('/lobby')
     } catch {
       setError('Invalid username or password')
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleGuest() {
-    setError('')
-    setGuestLoading(true)
-    try {
-      const guestName = `guest_${Math.random().toString(36).slice(2, 8)}`
-      const res = await api.post<{ accessToken: string }>('/auth/guest', { username: guestName })
-      localStorage.setItem('accessToken', res.data.accessToken)
-      router.push('/create')
-    } catch {
-      setError('Could not create guest session')
-    } finally {
-      setGuestLoading(false)
     }
   }
 
@@ -93,7 +78,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || guestLoading}
+              disabled={loading}
               className="w-full rounded-lg bg-red-600 px-4 py-2.5 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Signing in…' : 'Sign in'}
@@ -109,13 +94,12 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <button
-            onClick={handleGuest}
-            disabled={loading || guestLoading}
-            className="w-full rounded-lg border border-gray-700 px-4 py-2.5 font-semibold text-gray-300 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+          <Link
+            href="/guest"
+            className="block w-full rounded-lg border border-gray-700 px-4 py-2.5 text-center font-semibold text-gray-300 transition hover:bg-gray-800"
           >
-            {guestLoading ? 'Creating session…' : 'Play as guest'}
-          </button>
+            Play as guest
+          </Link>
         </div>
 
         <p className="text-center text-sm text-gray-500">

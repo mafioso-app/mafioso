@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { api } from '../../../lib/api'
+import { saveToken } from '../../../lib/auth'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -23,8 +24,8 @@ export default function RegisterPage() {
         email: email || undefined,
         password,
       })
-      localStorage.setItem('accessToken', res.data.accessToken)
-      router.push('/create')
+      saveToken(res.data.accessToken)
+      router.push('/lobby')
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -61,7 +62,7 @@ export default function RegisterPage() {
               minLength={3}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-lg bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none ring-1 ring-gray-700 focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               placeholder="your_username"
             />
           </div>
@@ -76,7 +77,7 @@ export default function RegisterPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none ring-1 ring-gray-700 focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               placeholder="you@example.com"
             />
           </div>
@@ -93,7 +94,7 @@ export default function RegisterPage() {
               minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none ring-1 ring-gray-700 focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-white placeholder-gray-500 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               placeholder="••••••••"
             />
           </div>
@@ -109,7 +110,7 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-gray-500">
           Already have an account?{' '}
-          <Link href="/login" className="text-indigo-400 hover:text-indigo-300">
+          <Link href="/login" className="text-red-400 hover:text-red-300">
             Sign in
           </Link>
         </p>
