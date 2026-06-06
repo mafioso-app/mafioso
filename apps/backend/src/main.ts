@@ -1,5 +1,7 @@
 import './instrument'
 import 'reflect-metadata'
+import { execSync } from 'child_process'
+import { join } from 'path'
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe, Logger } from '@nestjs/common'
 import { SentryGlobalFilter } from '@sentry/nestjs/setup'
@@ -9,7 +11,22 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor'
 import { GameGateway } from './modules/game/game.gateway'
 import { GameOrchestrator } from './modules/game/game.orchestrator'
 
+async function runMigrations() {
+  try {
+    console.log('Running database migrations...')
+    execSync('npx prisma migrate deploy --schema=prisma/schema.prisma', {
+      stdio: 'inherit',
+      cwd: join(__dirname, '..'),
+    })
+    console.log('Migrations complete')
+  } catch (error) {
+    console.error('Migration failed:', error)
+    process.exit(1)
+  }
+}
+
 async function bootstrap() {
+  await runMigrations()
   const app = await NestFactory.create(AppModule)
   const logger = new Logger('Bootstrap')
 
