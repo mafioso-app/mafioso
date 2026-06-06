@@ -19,24 +19,21 @@ RUN pnpm --filter @mafioso/types run build
 RUN pnpm --filter @mafioso/engine run build
 RUN pnpm --filter @mafioso/backend run prisma:generate
 RUN pnpm --filter @mafioso/backend run build
-RUN echo "node-linker=hoisted" >> .npmrc
-RUN pnpm --filter @mafioso/backend deploy --prod /app/backend-deploy
-RUN PRISMA_BIN=$(find /app/node_modules/.pnpm -path "*/prisma/build/index.js" 2>/dev/null | head -1) \
-    && cd /app/backend-deploy \
-    && node "$PRISMA_BIN" generate --schema=prisma/schema.prisma
 
-FROM base AS runner
+FROM node:20-alpine AS runner
 ENV NODE_ENV=production
-RUN apk add --no-cache openssl
 WORKDIR /app
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nestjs
-
-COPY --from=build /app/backend-deploy/node_modules ./node_modules
-COPY --from=build /app/apps/backend/dist ./dist
-COPY --from=build /app/apps/backend/prisma ./prisma
-
-USER root
-RUN chmod -R 755 /app/node_modules/@prisma
-USER nestjs
+RUN apk add --no-cache openssl
+RUN npm install -g pnpm
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/types/dist ./packages/types/dist
+COPY --from=build /app/packages/types/package.json ./packages/types/package.json
+COPY --from=build /app/packages/engine/dist ./packages/engine/dist
+COPY --from=build /app/packages/engine/package.json ./packages/engine/package.json
+COPY --from=build /app/apps/backend/dist ./apps/backend/dist
+COPY --from=build /app/apps/backend/package.json ./apps/backend/package.json
+COPY --from=build /app/apps/backend/prisma ./apps/backend/prisma
+COPY --from=build /app/apps/backend/node_modules ./apps/backend/node_modules
+WORKDIR /app/apps/backend
 EXPOSE 3001
 CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
