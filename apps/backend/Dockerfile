@@ -35,6 +35,8 @@ COPY --from=build /app/backend-deploy/node_modules ./node_modules
 COPY --from=build /app/apps/backend/dist ./dist
 COPY --from=build /app/apps/backend/prisma ./prisma
 
+USER root
+RUN chmod -R 755 /app/node_modules/@prisma
 USER nestjs
 EXPOSE 3001
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
