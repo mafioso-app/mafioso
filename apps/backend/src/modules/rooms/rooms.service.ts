@@ -81,7 +81,16 @@ export class RoomsService {
     try {
       const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
       if (!room) throw new NotFoundException('Room not found')
-      if (room.status !== 'LOBBY') throw new BadRequestException('Room is not accepting players')
+
+      // Idempotent rejoin: if user already has a session, return it regardless of room status
+      const existingSession = await this.prisma.playerSession.findFirst({
+        where: { session: { roomId: room.id }, userId },
+      })
+      if (existingSession) return existingSession
+
+      // New player — check room is still accepting
+      if (room.status === 'FINISHED') throw new BadRequestException('Game has ended')
+      if (room.status === 'ACTIVE') throw new BadRequestException('Game already in progress')
 
       const settings = room.settings as unknown as RoomSettings
       const maxPlayers = settings.maxPlayers ?? 20
@@ -102,9 +111,6 @@ export class RoomsService {
       })
       if (!session) throw new BadRequestException('No active session for this room')
 
-      const alreadyJoined = session.players.some((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
-      if (alreadyJoined) throw new ConflictException('Already joined this room')
-
       if (session.players.length >= maxPlayers) {
         throw new BadRequestException('Room is full')
       }
@@ -118,7 +124,6 @@ export class RoomsService {
       if (
         err instanceof NotFoundException ||
         err instanceof BadRequestException ||
-        err instanceof ConflictException ||
         err instanceof ForbiddenException
       ) {
         throw err

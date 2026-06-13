@@ -63,7 +63,10 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         const pub = this.redis.getPubClient()
         const sub = this.redis.getSubClient()
         if (pub && sub && this.server) {
-          this.server.adapter(createAdapter(pub, sub))
+          // @WebSocketServer() on a namespaced gateway gives a Namespace,
+          // not the root Server. The root Server is at namespace.server.
+          const ioServer = (this.server as unknown as { server: Server }).server ?? this.server
+          ioServer.adapter(createAdapter(pub, sub))
           this.redisAdapterSet = true
           this.logger.log('Redis adapter connected successfully')
         }

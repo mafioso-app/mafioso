@@ -1,13 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '../../../lib/api'
 import { saveToken } from '../../../lib/auth'
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirect = searchParams.get('redirect')
+
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -20,7 +23,7 @@ export default function LoginPage() {
     try {
       const res = await api.post<{ accessToken: string }>('/auth/login', { username, password })
       saveToken(res.data.accessToken)
-      router.push('/lobby')
+      router.push(redirect ?? '/lobby')
     } catch {
       setError('Invalid username or password')
     } finally {
@@ -110,5 +113,13 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

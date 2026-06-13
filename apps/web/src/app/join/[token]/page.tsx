@@ -3,9 +3,25 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { isAuthenticated } from '@/lib/auth'
 
 interface PageProps {
   params: { token: string }
+}
+
+function decodeRoomCode(token: string): string | null {
+  try {
+    const segment = token.split('.')[1]
+    if (!segment) return null
+    const padded = segment
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(segment.length + ((4 - (segment.length % 4)) % 4), '=')
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>
+    return (payload['roomCode'] as string) ?? null
+  } catch {
+    return null
+  }
 }
 
 export default function JoinByTokenPage({ params }: PageProps) {
@@ -14,43 +30,41 @@ export default function JoinByTokenPage({ params }: PageProps) {
 
   useEffect(() => {
     const { token } = params
+
+    // If not authenticated, save destination and redirect to login
+    if (!isAuthenticated()) {
+      const destination = `/join/${token}`
+      sessionStorage.setItem('postLoginRedirect', destination)
+      router.replace(`/login?redirect=${encodeURIComponent(destination)}`)
+      return
+    }
+
     api
-      .post<{ sessionId: string }>('/rooms/join-by-token', { token })
-      .then(async () => {
-        // Get room code from token payload (base64 decode middle segment)
-        try {
-          const segment = token.split('.')[1]
-          if (!segment) throw new Error('bad token')
-          const padded = segment.replace(/-/g, '+').replace(/_/g, '/').padEnd(
-            segment.length + ((4 - (segment.length % 4)) % 4),
-            '=',
-          )
-          const payload = JSON.parse(atob(padded)) as Record<string, unknown>
-          const roomCode = payload['roomCode'] as string
+      .post<{ sessionId: string; id: string }>('/rooms/join-by-token', { token })
+      .then(() => {
+        const roomCode = decodeRoomCode(token)
+        if (roomCode) {
           router.replace(`/room/${roomCode}`)
-        } catch {
+        } else {
           setError('Could not read invite token.')
         }
       })
       .catch((err: unknown) => {
-        const status = (err as { response?: { status?: number } }).response?.status
-        if (status === 403 || status === 401) {
+        const status = (err as { response?: { status?: number; data?: { message?: string } } }).response?.status
+        const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+
+        if (status === 401 || status === 403) {
           setError('This invite link has expired or is invalid.')
         } else if (status === 409) {
           // Already joined — just redirect
-          try {
-            const segment = params.token.split('.')[1]
-            if (!segment) throw new Error()
-            const padded = segment.replace(/-/g, '+').replace(/_/g, '/').padEnd(
-              segment.length + ((4 - (segment.length % 4)) % 4),
-              '=',
-            )
-            const payload = JSON.parse(atob(padded)) as Record<string, unknown>
-            const roomCode = payload['roomCode'] as string
+          const roomCode = decodeRoomCode(token)
+          if (roomCode) {
             router.replace(`/room/${roomCode}`)
-          } catch {
+          } else {
             setError('Already joined but could not redirect.')
           }
+        } else if (status === 400 && message) {
+          setError(message)
         } else {
           setError('Failed to join room. Please try again.')
         }
@@ -61,7 +75,7 @@ export default function JoinByTokenPage({ params }: PageProps) {
     return (
       <main className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center px-4">
         <div className="text-center space-y-4">
-          <p className="text-2xl font-bold text-red-400">Invite expired</p>
+          <p className="text-2xl font-bold text-red-400">Could not join</p>
           <p className="text-gray-400">{error}</p>
           <a href="/" className="text-blue-400 hover:underline text-sm">
             Return home
