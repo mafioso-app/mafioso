@@ -28,14 +28,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   const logger = new Logger('Bootstrap')
 
-  const origins = [
-    process.env['WEB_URL'],
-    process.env['MOBILE_URL'],
-  ].filter((o): o is string => typeof o === 'string' && o.length > 0)
-
   app.enableCors({
-    origin: origins.length > 0 ? origins : false,
+    origin: [
+      'https://mafioso-web.vercel.app',
+      'http://localhost:3000',
+      process.env['WEB_URL'],
+    ].filter((o): o is string => typeof o === 'string' && o.length > 0),
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 
   app.useGlobalPipes(

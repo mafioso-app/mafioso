@@ -2,7 +2,7 @@ import { IsString, IsEmail, IsOptional, MinLength, MaxLength } from 'class-valid
 
 export class RegisterDto {
   @IsString()
-  @MinLength(2)
+  @MinLength(3)
   @MaxLength(32)
   username!: string
 
@@ -11,6 +11,6 @@ export class RegisterDto {
   email?: string
 
   @IsString()
-  @MinLength(8)
+  @MinLength(6)
   password!: string
 }

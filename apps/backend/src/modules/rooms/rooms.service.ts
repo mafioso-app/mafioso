@@ -43,114 +43,145 @@ export class RoomsService {
   }
 
   async createRoom(moderatorId: string, dto: CreateRoomDto) {
-    if (dto.templateId && dto.templateId !== 'custom') {
-      const template = ROOM_TEMPLATES[dto.templateId]
-      if (!template) throw new BadRequestException(`Unknown templateId: ${dto.templateId}`)
-      const enabledRoles = Object.entries(template.roles)
-        .flatMap(([role, count]) => Array(count).fill(role) as string[])
-      dto = { ...dto, enabledRoles, maxPlayers: template.maxPlayers }
+    try {
+      if (dto.templateId && dto.templateId !== 'custom') {
+        const template = ROOM_TEMPLATES[dto.templateId]
+        if (!template) throw new BadRequestException(`Unknown templateId: ${dto.templateId}`)
+        const enabledRoles = Object.entries(template.roles)
+          .flatMap(([role, count]) => Array(count).fill(role) as string[])
+        dto = { ...dto, enabledRoles, maxPlayers: template.maxPlayers }
+      }
+
+      const settings: RoomSettings = { ...DEFAULT_SETTINGS, ...dto }
+
+      const code = await this.generateUniqueCode()
+
+      const room = await this.prisma.room.create({
+        data: {
+          code,
+          moderatorId,
+          settings: settings as object,
+          status: 'LOBBY',
+        },
+      })
+
+      const session = await this.prisma.gameSession.create({
+        data: { roomId: room.id, phase: 'LOBBY' },
+      })
+
+      return { roomCode: room.code, roomId: room.id, sessionId: session.id }
+    } catch (err: unknown) {
+      if (err instanceof BadRequestException || err instanceof InternalServerErrorException) throw err
+      this.logger.error('createRoom failed', err)
+      throw new InternalServerErrorException('Failed to create room')
     }
-
-    const settings: RoomSettings = { ...DEFAULT_SETTINGS, ...dto }
-
-    const code = await this.generateUniqueCode()
-
-    const room = await this.prisma.room.create({
-      data: {
-        code,
-        moderatorId,
-        settings: settings as object,
-        status: 'LOBBY',
-      },
-    })
-
-    const session = await this.prisma.gameSession.create({
-      data: { roomId: room.id, phase: 'LOBBY' },
-    })
-
-    return { roomCode: room.code, roomId: room.id, sessionId: session.id }
   }
 
   async joinRoom(userId: string, roomCode: string, inviteToken?: string) {
-    const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
-    if (!room) throw new NotFoundException('Room not found')
-    if (room.status !== 'LOBBY') throw new BadRequestException('Room is not accepting players')
+    try {
+      const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
+      if (!room) throw new NotFoundException('Room not found')
+      if (room.status !== 'LOBBY') throw new BadRequestException('Room is not accepting players')
 
-    const settings = room.settings as unknown as RoomSettings
-    const maxPlayers = settings.maxPlayers ?? 20
+      const settings = room.settings as unknown as RoomSettings
+      const maxPlayers = settings.maxPlayers ?? 20
 
-    if (settings.requireInvite) {
-      if (!inviteToken) throw new ForbiddenException('Invite token required')
-      try {
-        const payload = this.jwt.verify<{ roomCode: string }>(inviteToken)
-        if (payload.roomCode !== roomCode) throw new Error('Room code mismatch')
-      } catch {
-        throw new ForbiddenException('Invalid or expired invite token')
+      if (settings.requireInvite) {
+        if (!inviteToken) throw new ForbiddenException('Invite token required')
+        try {
+          const payload = this.jwt.verify<{ roomCode: string }>(inviteToken)
+          if (payload.roomCode !== roomCode) throw new Error('Room code mismatch')
+        } catch {
+          throw new ForbiddenException('Invalid or expired invite token')
+        }
       }
+
+      const session = await this.prisma.gameSession.findFirst({
+        where: { roomId: room.id, endedAt: null },
+        include: { players: true },
+      })
+      if (!session) throw new BadRequestException('No active session for this room')
+
+      const alreadyJoined = session.players.some((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
+      if (alreadyJoined) throw new ConflictException('Already joined this room')
+
+      if (session.players.length >= maxPlayers) {
+        throw new BadRequestException('Room is full')
+      }
+
+      const nextSeat = session.players.length + 1
+
+      return await this.prisma.playerSession.create({
+        data: { sessionId: session.id, userId, seat: nextSeat, isAlive: true },
+      })
+    } catch (err: unknown) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof BadRequestException ||
+        err instanceof ConflictException ||
+        err instanceof ForbiddenException
+      ) {
+        throw err
+      }
+      this.logger.error('joinRoom failed', err)
+      throw new InternalServerErrorException('Failed to join room')
     }
-
-    const session = await this.prisma.gameSession.findFirst({
-      where: { roomId: room.id, endedAt: null },
-      include: { players: true },
-    })
-    if (!session) throw new BadRequestException('No active session for this room')
-
-    const alreadyJoined = session.players.some((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
-    if (alreadyJoined) throw new ConflictException('Already joined this room')
-
-    if (session.players.length >= maxPlayers) {
-      throw new BadRequestException('Room is full')
-    }
-
-    const nextSeat = session.players.length + 1
-
-    return this.prisma.playerSession.create({
-      data: { sessionId: session.id, userId, seat: nextSeat, isAlive: true },
-    })
   }
 
   async getRoomStatus(roomCode: string, _requestingUserId: string) {
-    const room = await this.prisma.room.findUnique({
-      where: { code: roomCode },
-      include: {
-        sessions: {
-          where: { endedAt: null },
-          take: 1,
-          include: {
-            players: { include: { user: { select: { id: true, username: true } } } },
+    try {
+      const room = await this.prisma.room.findUnique({
+        where: { code: roomCode },
+        include: {
+          sessions: {
+            where: { endedAt: null },
+            take: 1,
+            include: {
+              players: { include: { user: { select: { id: true, username: true } } } },
+            },
           },
         },
-      },
-    })
-    if (!room) throw new NotFoundException('Room not found')
+      })
+      if (!room) throw new NotFoundException('Room not found')
 
-    const session = room.sessions[0] ?? null
-    return {
-      roomCode: room.code,
-      roomId: room.id,
-      status: room.status,
-      moderatorId: room.moderatorId,
-      phase: session?.phase ?? 'LOBBY',
-      playerCount: session?.players.length ?? 0,
-      players: (session?.players ?? []).map((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number; user?: { id: string; username: string } }) => ({
-        id: p.id,
-        userId: p.userId,
-        username: p.user?.username ?? '',
-        seat: p.seat,
-        isAlive: p.isAlive,
-      })),
+      const session = room.sessions[0] ?? null
+      return {
+        roomCode: room.code,
+        roomId: room.id,
+        status: room.status,
+        moderatorId: room.moderatorId,
+        phase: session?.phase ?? 'LOBBY',
+        playerCount: session?.players.length ?? 0,
+        players: (session?.players ?? []).map((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number; user?: { id: string; username: string } }) => ({
+          id: p.id,
+          userId: p.userId,
+          username: p.user?.username ?? '',
+          seat: p.seat,
+          isAlive: p.isAlive,
+        })),
+      }
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException) throw err
+      this.logger.error('getRoomStatus failed', err)
+      throw new InternalServerErrorException('Failed to get room status')
     }
   }
 
   async generateInviteLink(roomCode: string, moderatorId: string) {
-    const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
-    if (!room) throw new NotFoundException('Room not found')
-    if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
+    try {
+      const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
+      if (!room) throw new NotFoundException('Room not found')
+      if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const token = this.jwt.sign({ roomCode }, { expiresIn: '24h' })
-    const webUrl = process.env['WEB_URL'] ?? 'http://localhost:3000'
-    return { inviteUrl: `${webUrl}/join/${token}`, token, expiresAt }
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      const token = this.jwt.sign({ roomCode }, { expiresIn: '24h' })
+      const webUrl = process.env['WEB_URL'] ?? 'http://localhost:3000'
+      return { inviteUrl: `${webUrl}/join/${token}`, token, expiresAt }
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException || err instanceof ForbiddenException) throw err
+      this.logger.error('generateInviteLink failed', err)
+      throw new InternalServerErrorException('Failed to generate invite link')
+    }
   }
 
   async joinByToken(token: string, userId: string) {
@@ -165,38 +196,56 @@ export class RoomsService {
   }
 
   async startGame(roomCode: string, moderatorId: string) {
-    const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
-    if (!room) throw new NotFoundException('Room not found')
-    if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
-    if (room.status !== 'LOBBY') throw new BadRequestException('Room is not in LOBBY status')
+    try {
+      const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
+      if (!room) throw new NotFoundException('Room not found')
+      if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
+      if (room.status !== 'LOBBY') throw new BadRequestException('Room is not in LOBBY status')
 
-    await this.prisma.room.update({
-      where: { code: roomCode },
-      data: { status: 'ACTIVE' },
-    })
+      await this.prisma.room.update({
+        where: { code: roomCode },
+        data: { status: 'ACTIVE' },
+      })
 
-    this.events.emit('room.start', { roomCode, roomId: room.id })
-    this.logger.log(`Game started in room ${roomCode}`)
-    return { started: true }
+      this.events.emit('room.start', { roomCode, roomId: room.id })
+      this.logger.log(`Game started in room ${roomCode}`)
+      return { started: true }
+    } catch (err: unknown) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException ||
+        err instanceof BadRequestException
+      ) {
+        throw err
+      }
+      this.logger.error('startGame failed', err)
+      throw new InternalServerErrorException('Failed to start game')
+    }
   }
 
   async getRoomEvents(roomCode: string, moderatorId: string) {
-    const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
-    if (!room) throw new NotFoundException('Room not found')
-    if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
+    try {
+      const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
+      if (!room) throw new NotFoundException('Room not found')
+      if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
 
-    const session = await this.prisma.gameSession.findFirst({
-      where: { roomId: room.id },
-      orderBy: { startedAt: 'desc' },
-    })
-    if (!session) return { events: [] }
+      const session = await this.prisma.gameSession.findFirst({
+        where: { roomId: room.id },
+        orderBy: { startedAt: 'desc' },
+      })
+      if (!session) return { events: [] }
 
-    const events = await this.prisma.gameEvent.findMany({
-      where: { sessionId: session.id },
-      orderBy: { sequence: 'asc' },
-    })
+      const events = await this.prisma.gameEvent.findMany({
+        where: { sessionId: session.id },
+        orderBy: { sequence: 'asc' },
+      })
 
-    return { events }
+      return { events }
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException || err instanceof ForbiddenException) throw err
+      this.logger.error('getRoomEvents failed', err)
+      throw new InternalServerErrorException('Failed to get room events')
+    }
   }
 
   private async generateUniqueCode(): Promise<string> {

@@ -13,11 +13,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     this.logger.error(`${request.method} ${request.url} → ${status}`)
 
+    const exceptionResponse = exception.getResponse()
+    const message =
+      typeof exceptionResponse === 'string'
+        ? exceptionResponse
+        : typeof exceptionResponse === 'object' &&
+            exceptionResponse !== null &&
+            'message' in exceptionResponse
+          ? (exceptionResponse as { message: string | string[] }).message
+          : exception.message
+
     response.status(status).json({
+      success: false,
       statusCode: status,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      message: exception.message,
+      message: Array.isArray(message) ? message.join('; ') : message,
     })
   }
 }

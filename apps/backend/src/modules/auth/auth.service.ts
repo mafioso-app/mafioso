@@ -1,15 +1,17 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
 import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { EmailService } from './email.service'
 
-const SALT_ROUNDS = 12
+const SALT_ROUNDS = 10
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -17,54 +19,77 @@ export class AuthService {
   ) {}
 
   async register(username: string, password: string, email?: string) {
-    const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ username }, ...(email ? [{ email }] : [])] },
-    })
-    if (existing) throw new ConflictException('Username or email already taken')
+    try {
+      const existing = await this.prisma.user.findFirst({
+        where: { OR: [{ username }, ...(email ? [{ email }] : [])] },
+      })
+      if (existing) throw new ConflictException('Username or email already taken')
 
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS)
-    const user = await this.prisma.user.create({
-      data: { username, email, passwordHash, isGuest: false },
-    })
+      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS)
+      const user = await this.prisma.user.create({
+        data: { username, email, passwordHash, isGuest: false },
+      })
 
-    const { accessToken, refreshToken } = await this.generateTokens(
-      user.id,
-      user.username,
-      false,
-    )
+      const { accessToken, refreshToken } = await this.generateTokens(
+        user.id,
+        user.username,
+        false,
+      )
 
-    if (email) {
-      void this.email.sendWelcomeEmail(email, username)
+      if (email) {
+        void this.email.sendWelcomeEmail(email, username)
+      }
+
+      return { accessToken, refreshToken, user: { id: user.id, username: user.username, isGuest: false } }
+    } catch (err: unknown) {
+      if (err instanceof ConflictException) throw err
+      this.logger.error('register failed', err)
+      throw new InternalServerErrorException('Registration failed')
     }
-
-    return { accessToken, refreshToken, user: { id: user.id, username: user.username, isGuest: false } }
   }
 
   async login(username: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { username } })
-    if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials')
+    try {
+      const user = await this.prisma.user.findUnique({ where: { username } })
+      if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials')
 
-    const valid = await bcrypt.compare(password, user.passwordHash)
-    if (!valid) throw new UnauthorizedException('Invalid credentials')
+      const valid = await bcrypt.compare(password, user.passwordHash)
+      if (!valid) throw new UnauthorizedException('Invalid credentials')
 
-    const { accessToken, refreshToken } = await this.generateTokens(
-      user.id,
-      user.username,
-      false,
-    )
-    return { accessToken, refreshToken, user: { id: user.id, username: user.username, isGuest: false } }
+      const { accessToken, refreshToken } = await this.generateTokens(
+        user.id,
+        user.username,
+        false,
+      )
+      return { accessToken, refreshToken, user: { id: user.id, username: user.username, isGuest: false } }
+    } catch (err: unknown) {
+      if (err instanceof UnauthorizedException) throw err
+      this.logger.error('login failed', err)
+      throw new InternalServerErrorException('Login failed')
+    }
   }
 
-  async guest(username: string) {
-    const existing = await this.prisma.user.findUnique({ where: { username } })
-    if (existing) throw new ConflictException('Username already taken')
+  async guest(requestedUsername?: string) {
+    const username =
+      requestedUsername && requestedUsername.trim().length > 0
+        ? requestedUsername.trim()
+        : `guest_${Math.random().toString(36).slice(2, 8)}`
 
-    const user = await this.prisma.user.create({
-      data: { username, isGuest: true },
-    })
-
-    const accessToken = this.signAccess(user.id, user.username, true)
-    return { accessToken, user: { id: user.id, username: user.username, isGuest: true } }
+    try {
+      const user = await this.prisma.user.create({
+        data: { username, isGuest: true },
+      })
+      const accessToken = this.signAccess(user.id, user.username, true)
+      return { accessToken, user: { id: user.id, username: user.username, isGuest: true } }
+    } catch {
+      // Unique constraint violated — username already taken, generate a random one
+      const fallback = `guest_${Math.random().toString(36).slice(2, 8)}`
+      const user = await this.prisma.user.create({
+        data: { username: fallback, isGuest: true },
+      })
+      const accessToken = this.signAccess(user.id, user.username, true)
+      return { accessToken, user: { id: user.id, username: user.username, isGuest: true } }
+    }
   }
 
   async refresh(rawToken: string) {

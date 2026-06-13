@@ -1,8 +1,8 @@
-import { IsString, MinLength, MaxLength } from 'class-validator'
+import { IsString, IsOptional, MaxLength } from 'class-validator'
 
 export class GuestDto {
   @IsString()
-  @MinLength(2)
+  @IsOptional()
   @MaxLength(32)
-  username!: string
+  username?: string
 }
