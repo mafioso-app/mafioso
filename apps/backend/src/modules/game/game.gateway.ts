@@ -8,7 +8,7 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets'
-import { Logger, UseFilters, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common'
+import { Logger, OnModuleInit, UseFilters, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common'
 import { OnEvent } from '@nestjs/event-emitter'
 import { JwtService } from '@nestjs/jwt'
 import { Server, Socket } from 'socket.io'
@@ -36,7 +36,7 @@ interface JwtPayload {
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
 @UseFilters(WsExceptionFilter)
-export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()
   server!: Server
 
@@ -57,21 +57,23 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     this.logger.log('Gateway initialized')
   }
 
-  async handleConnection(client: Socket): Promise<void> {
-    if (!this.redisAdapterSet) {
+  onModuleInit(): void {
+    setTimeout(() => {
       try {
         const pub = this.redis.getPubClient()
         const sub = this.redis.getSubClient()
-        if (pub && sub) {
+        if (pub && sub && this.server) {
           this.server.adapter(createAdapter(pub, sub))
           this.redisAdapterSet = true
           this.logger.log('Redis adapter connected successfully')
         }
       } catch (e) {
-        this.logger.error('Redis adapter failed: ' + (e as Error).message)
+        this.logger.error('Redis adapter setup failed: ' + (e as Error).message)
       }
-    }
+    }, 3000)
+  }
 
+  async handleConnection(client: Socket): Promise<void> {
     // Accept token from handshake.auth.token OR Authorization: Bearer <token> header
     const authHeader = client.handshake.headers['authorization'] as string | undefined
     const token =
@@ -241,6 +243,46 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     })
   }
 
+  @SubscribeMessage('moderator_advance_phase')
+  async handleAdvancePhase(@ConnectedSocket() client: Socket): Promise<void> {
+    const sessionId = client.data['sessionId'] as string | undefined
+    const userId = client.data['userId'] as string | undefined
+    if (!sessionId || !userId) return
+
+    const state = this.orchestrator.getState(sessionId)
+    if (!state) return
+
+    const room = await this.prisma.room.findFirst({ where: { sessions: { some: { id: sessionId } } } })
+    if (!room || room.moderatorId !== userId) return
+
+    try {
+      const { GamePhase } = await import('@mafioso/types')
+      if (state.phase === GamePhase.NIGHT) {
+        await this.orchestrator.endNightPhase(sessionId, this.server)
+      } else if (state.phase === GamePhase.DAY_DISCUSSION || state.phase === GamePhase.DAY_VOTING) {
+        await this.orchestrator.endDayPhase(sessionId, this.server)
+      }
+    } catch (e) {
+      this.logger.error(`advance phase failed: ${(e as Error).message}`)
+    }
+  }
+
+  @SubscribeMessage('moderator_force_end')
+  async handleForceEnd(@ConnectedSocket() client: Socket): Promise<void> {
+    const sessionId = client.data['sessionId'] as string | undefined
+    const userId = client.data['userId'] as string | undefined
+    if (!sessionId || !userId) return
+
+    const room = await this.prisma.room.findFirst({ where: { sessions: { some: { id: sessionId } } } })
+    if (!room || room.moderatorId !== userId) return
+
+    try {
+      await this.orchestrator.forceEndGame(sessionId, this.server)
+    } catch (e) {
+      this.logger.error(`force end failed: ${(e as Error).message}`)
+    }
+  }
+
   @OnEvent('room.start')
   async handleRoomStart(payload: { roomCode: string; roomId: string }): Promise<void> {
     try {
@@ -283,14 +325,20 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return
     }
 
-    const playerSession = session.players.find((p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) => p.userId === userId)
-    if (!playerSession) {
+    const isModerator = room.moderatorId === userId
+    const playerSession = session.players.find(
+      (p: { userId: string; id: string; role: string | null; isAlive: boolean; seat: number }) =>
+        p.userId === userId,
+    )
+
+    // Moderators can join even if they don't have a PlayerSession
+    if (!playerSession && !isModerator) {
       client.emit('error', { code: 'FORBIDDEN', message: 'You are not in this room' })
       return
     }
 
     await client.join(roomCode)
-    if (room.moderatorId === userId) {
+    if (isModerator) {
       await client.join(`mod:${roomCode}`)
     }
 
@@ -301,8 +349,10 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // Emit persisted or in-memory state
     const liveState = this.orchestrator.getState(session.id)
     if (liveState) {
-      const filtered = filterStateForPlayer(liveState, playerSession.id)
-      client.emit('state_sync', filtered)
+      const stateForClient = playerSession
+        ? filterStateForPlayer(liveState, playerSession.id)
+        : (liveState as unknown as Parameters<typeof filterStateForPlayer>[0])
+      client.emit('state_sync', stateForClient)
 
       // Emit current timer so client countdown resumes
       const timerEndsAt = await this.timerService.getTimerEndsAt(session.id)
@@ -339,12 +389,14 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       })
     }
 
-    // Notify room that this player reconnected
-    this.server.to(roomCode).emit('player_updated', {
-      playerId: playerSession.id,
-      isAlive: playerSession.isAlive,
-      connected: true,
-    })
+    // Notify room of player connection (only if they have a PlayerSession)
+    if (playerSession) {
+      this.server.to(roomCode).emit('player_updated', {
+        playerId: playerSession.id,
+        isAlive: playerSession.isAlive,
+        connected: true,
+      })
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Request, UseGuards } from '@nestjs/common'
+import { SkipThrottle } from '@nestjs/throttler'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { ModeratorGuard } from '../../common/guards/moderator.guard'
 import { RoomsService } from './rooms.service'
@@ -57,9 +58,9 @@ export class RoomsController {
     return this.roomsService.joinByToken(token, req.user.userId)
   }
 
+  @SkipThrottle()
   @Get(':code/events')
-  @UseGuards(ModeratorGuard)
-  getRoomEvents(@Request() req: AuthRequest, @Param('code') code: string) {
-    return this.roomsService.getRoomEvents(code, req.user.userId)
+  getRoomEvents(@Param('code') code: string) {
+    return this.roomsService.getRoomEvents(code)
   }
 }

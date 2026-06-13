@@ -10,6 +10,7 @@ import { PhaseControls } from './PhaseControls'
 import { GameLog } from './GameLog'
 import { AnnouncementBar } from './AnnouncementBar'
 import { GamePhase, Team } from '@mafioso/types'
+import { getSocket } from '@/lib/socket'
 
 interface ModeratorDashboardProps {
   roomCode: string
@@ -77,7 +78,11 @@ export function ModeratorDashboard({ roomCode }: ModeratorDashboardProps) {
 
         {/* Center column */}
         <div className="lg:col-span-2 space-y-4">
-          <PhaseControls roomCode={roomCode} />
+          <PhaseControls
+            roomCode={roomCode}
+            onAdvance={() => getSocket().emit('moderator_advance_phase', {})}
+            onForceEnd={() => getSocket().emit('moderator_force_end', {})}
+          />
           <AnnouncementBar />
           <GameLog roomCode={roomCode} />
         </div>

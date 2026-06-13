@@ -91,17 +91,36 @@ export class GameOrchestrator {
     const session = room.sessions[0]
     this.logger.log(`startGame: session loaded — ${session?.players.length ?? 0} players`)
 
-    if (!session || session.players.length < 4) {
+    if (!session || session.players.length < 2) {
       this.logger.warn(
-        `startGame: not enough players in room ${roomCode} — need 4, have ${session?.players.length ?? 0}`,
+        `startGame: not enough players in room ${roomCode} — need 2, have ${session?.players.length ?? 0}`,
       )
       server.to(roomCode).emit('error', {
-        message: `Need at least 4 players to start. Have ${session?.players.length ?? 0}.`,
+        message: `Need at least 2 players to start. Have ${session?.players.length ?? 0}.`,
       })
       return
     }
 
-    const settings = room.settings as unknown as RoomSettings
+    // Auto-calculate and persist roleConfig so it reflects actual player count
+    const playerCount = session.players.length
+    const mafiaCount = Math.max(1, Math.floor(playerCount / 4))
+    const hasDetective = playerCount >= 5
+    const hasDoctor = playerCount >= 6
+    const specialCount = (hasDetective ? 1 : 0) + (hasDoctor ? 1 : 0)
+    const villagerCount = Math.max(1, playerCount - mafiaCount - specialCount)
+
+    const updatedSettings = {
+      ...(room.settings as Record<string, unknown>),
+      roleConfig: {
+        mafia: mafiaCount,
+        ...(hasDetective && { detective: 1 }),
+        ...(hasDoctor && { doctor: 1 }),
+        villager: villagerCount,
+      },
+    }
+    await this.prisma.room.update({ where: { code: roomCode }, data: { settings: updatedSettings } })
+
+    const settings = updatedSettings as unknown as RoomSettings
     const roleIds = this.buildRoleList(session.players.length)
     this.logger.log(`startGame: role list built — ${roleIds.join(', ')}`)
 
@@ -139,18 +158,33 @@ export class GameOrchestrator {
       where: { id: session.id },
       data: { phase: 'NIGHT' },
     })
+
+    // Persist each player's role to DB
+    await Promise.all(
+      nightState.players.map((p) =>
+        this.prisma.playerSession.update({
+          where: { id: p.id },
+          data: { role: p.role },
+        }),
+      ),
+    )
+
     await this.appendEvent(session.id, 'GAME_STARTED', null, null, {
       roles: nightState.players.map((p) => ({ id: p.id, role: p.role })),
     })
 
-    // Emit role_assigned to each player socket individually
+    // Emit role_assigned to each player socket individually (keyed by userId)
     for (const player of nightState.players) {
       const filtered = filterStateForPlayer(nightState, player.id)
       server.to(player.userId).emit('role_assigned', { role: player.role })
       server.to(player.userId).emit('state_sync', filtered)
     }
 
-    // Moderator gets full filtered view too
+    // Broadcast phase_change to full room + moderator room
+    server.to(roomCode).emit('phase_change', {
+      phase: GamePhase.NIGHT,
+      timerEndsAt: nightState.timerEndsAt,
+    })
     server.to(`mod:${roomCode}`).emit('phase_change', {
       phase: GamePhase.NIGHT,
       timerEndsAt: nightState.timerEndsAt,
@@ -444,6 +478,19 @@ export class GameOrchestrator {
       }
     }
     server.to(`mod:${roomCode}`).emit('state_sync', state)
+  }
+
+  async forceEndGame(sessionId: string, server: Server): Promise<void> {
+    const roomCode = await this.getRoomCode(sessionId)
+    if (!roomCode) return
+    this.logger.log(`forceEndGame: session=${sessionId}`)
+    await this.prisma.gameSession.update({
+      where: { id: sessionId },
+      data: { phase: 'GAME_OVER', endedAt: new Date() },
+    })
+    await this.appendEvent(sessionId, 'GAME_OVER', null, null, { forced: true })
+    server.to(roomCode).emit('game_over', { winner: null })
+    this.states.delete(sessionId)
   }
 
   private async finalizeGame(

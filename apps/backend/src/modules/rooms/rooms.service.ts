@@ -196,19 +196,24 @@ export class RoomsService {
   }
 
   async startGame(roomCode: string, moderatorId: string) {
+    this.logger.log(`startGame called: roomCode=${roomCode}, userId=${moderatorId}`)
     try {
       const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
+      this.logger.log(`Room found: status=${room?.status}, moderatorId=${room?.moderatorId}, requesting=${moderatorId}`)
       if (!room) throw new NotFoundException('Room not found')
       if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
-      if (room.status !== 'LOBBY') throw new BadRequestException('Room is not in LOBBY status')
+      // Only reject if the game is fully finished — allow re-start from ACTIVE (e.g. after reconnect)
+      if (room.status === 'FINISHED') throw new BadRequestException('Game is already finished')
 
-      await this.prisma.room.update({
-        where: { code: roomCode },
-        data: { status: 'ACTIVE' },
-      })
+      if (room.status === 'LOBBY') {
+        await this.prisma.room.update({
+          where: { code: roomCode },
+          data: { status: 'ACTIVE' },
+        })
+      }
 
       this.events.emit('room.start', { roomCode, roomId: room.id })
-      this.logger.log(`Game started in room ${roomCode}`)
+      this.logger.log(`room.start event emitted for room ${roomCode}`)
       return { started: true }
     } catch (err: unknown) {
       if (
@@ -223,11 +228,10 @@ export class RoomsService {
     }
   }
 
-  async getRoomEvents(roomCode: string, moderatorId: string) {
+  async getRoomEvents(roomCode: string) {
     try {
       const room = await this.prisma.room.findUnique({ where: { code: roomCode } })
       if (!room) throw new NotFoundException('Room not found')
-      if (room.moderatorId !== moderatorId) throw new ForbiddenException('Not the moderator')
 
       const session = await this.prisma.gameSession.findFirst({
         where: { roomId: room.id },
@@ -242,7 +246,7 @@ export class RoomsService {
 
       return { events }
     } catch (err: unknown) {
-      if (err instanceof NotFoundException || err instanceof ForbiddenException) throw err
+      if (err instanceof NotFoundException) throw err
       this.logger.error('getRoomEvents failed', err)
       throw new InternalServerErrorException('Failed to get room events')
     }

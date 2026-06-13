@@ -88,6 +88,8 @@ export interface ClientToServerEvents {
   reconnect_state: (payload: ReconnectDto) => void
   send_message: (payload: SendMessageDto) => void
   moderator_announce: (payload: { message: string }) => void
+  moderator_advance_phase: (payload: Record<string, never>) => void
+  moderator_force_end: (payload: Record<string, never>) => void
 }
 
 export interface ChatHistoryPayload {
