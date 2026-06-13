@@ -9,6 +9,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets'
 import { Logger, UseFilters, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common'
+import { OnEvent } from '@nestjs/event-emitter'
 import { JwtService } from '@nestjs/jwt'
 import { Server, Socket } from 'socket.io'
 import { createAdapter } from '@socket.io/redis-adapter'
@@ -71,7 +72,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       }
     }
 
-    const token = client.handshake.auth['token'] as string | undefined
+    // Accept token from handshake.auth.token OR Authorization: Bearer <token> header
+    const authHeader = client.handshake.headers['authorization'] as string | undefined
+    const token =
+      (client.handshake.auth['token'] as string | undefined) ??
+      (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined)
 
     if (!token) {
       client.emit('error', { code: 'UNAUTHORIZED', message: 'Unauthorized' })
@@ -234,6 +239,19 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       message: dto.message,
       timestamp: Date.now(),
     })
+  }
+
+  @OnEvent('room.start')
+  async handleRoomStart(payload: { roomCode: string; roomId: string }): Promise<void> {
+    try {
+      await this.orchestrator.startGame(payload.roomCode, this.server)
+      this.logger.log(`Game started in room ${payload.roomCode}`)
+    } catch (e) {
+      this.logger.error(`Failed to start game in room ${payload.roomCode}: ${(e as Error).message}`)
+      this.server
+        .to(payload.roomCode)
+        .emit('error', { message: 'Failed to start game. Please try again.' })
+    }
   }
 
   private async attachToRoom(client: Socket, roomCode: string): Promise<void> {
