@@ -68,6 +68,8 @@ export class GameOrchestrator {
     roomCode: string,
     server: Server,
   ): Promise<void> {
+    this.logger.log(`startGame: entering for room ${roomCode}`)
+    try {
     const room = await this.prisma.room.findUnique({
       where: { code: roomCode },
       include: {
@@ -87,13 +89,21 @@ export class GameOrchestrator {
     }
 
     const session = room.sessions[0]
-    if (!session || session.players.length < 2) {
-      this.logger.warn(`startGame: session not found or too few players in room ${roomCode}`)
+    this.logger.log(`startGame: session loaded — ${session?.players.length ?? 0} players`)
+
+    if (!session || session.players.length < 4) {
+      this.logger.warn(
+        `startGame: not enough players in room ${roomCode} — need 4, have ${session?.players.length ?? 0}`,
+      )
+      server.to(roomCode).emit('error', {
+        message: `Need at least 4 players to start. Have ${session?.players.length ?? 0}.`,
+      })
       return
     }
 
     const settings = room.settings as unknown as RoomSettings
     const roleIds = this.buildRoleList(session.players.length)
+    this.logger.log(`startGame: role list built — ${roleIds.join(', ')}`)
 
     const baseState: EngineGameState = {
       sessionId: session.id,
@@ -155,6 +165,11 @@ export class GameOrchestrator {
     })
 
     this.logger.log(`Game started in room ${roomCode}, session ${session.id}`)
+    } catch (e: unknown) {
+      this.logger.error(`startGame failed for room ${roomCode}: ${(e as Error).message}`)
+      server.to(roomCode).emit('error', { message: 'Failed to start game. Please try again.' })
+      throw e
+    }
   }
 
   // ---------------------------------------------------------------------------
